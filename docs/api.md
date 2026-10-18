@@ -21,8 +21,8 @@
 
 | 名称 | 含义 | 出现位置 |
 | --- | --- | --- |
-| `T` | 边类型：节点之间连边的类型，决定图长什么样 | `Unwrapper[T]`、`MultiUnwrapper[T]`、`Unwrap[T]`、`UnwrapAll[T]`、`Walk[T]`、`Is[T]`、`As[E, T]`、`AsFrom[E, T]`、`AsFromWithAny[E, T]` |
-| `E` | 匹配类型：你想从图里捞出来的类型 | `As[E, T]`、`AsFrom[E, T]`、`AsFromWithAny[E, T]`、`AsFromWith2[E, A, B]`、`Aser[E]`、`AsError[E]` |
+| `T` | 边类型：节点之间连边的类型，决定图长什么样 | `Unwrapper[T]`、`MultiUnwrapper[T]`、`Unwrap[T]`、`UnwrapAll[T]`、`Walk[T]`、`Is[T]`、`As[E, T]`、`AsWithAny[E, T]`、`AsFrom[E, T]`、`AsFromWithAny[E, T]` |
+| `E` | 匹配类型：你想从图里捞出来的类型 | `As[E, T]`、`AsWithAny[E, T]`、`AsFrom[E, T]`、`AsFromWithAny[E, T]`、`AsFromWith2[E, A, B]`、`Aser[E]`、`AsError[E]` |
 
 在 `errors.As` 里，`T` 恒为 `error`、`E` 由你指定。本库把 `T` 也开放出来，这就是「异构查找」的含义。
 
@@ -171,6 +171,55 @@ func main() {
 	if qerr, ok := typer.As[*QueryError](err); ok {
 		fmt.Println(qerr.Query) // SELECT
 	}
+}
+```
+
+### `func AsWithAny[E any, T any](root T) (E, bool)`
+
+`As` 的混合边版：在边类型为 `T` 的图里，节点还可能用通配边类型 `any` 暴露后继。它是 `AsFromWithAny` 的**强类型根**形式，`T` 由 `root` 推导、`E` 显式给出。
+
+- 类型参数 `T`：主边类型，由 `root` 推导。
+- 类型参数 `E`：匹配类型，通过**部分类型实参**显式给出，例如 `AsWithAny[*MyErr](err)`（此时 `T` 推导为 `error`）。
+- 参数 `root`：遍历起点。
+- 返回：命中时 `(匹配值, true)`；未命中 `(E 的零值, false)`。
+- 每个节点按序取后继：① `Unwrapper[T]`；② `MultiUnwrapper[T]`；③ 降级 `Unwrapper[any]`；④ 降级 `MultiUnwrapper[any]`。节点匹配规则与 `As` 相同（直接断言 → `Aser[E]` → 旧式 `As(any) bool`）。
+- 注意：`T` 由实参的**静态类型**推导。若边类型是接口，请传一个静态类型为该接口的变量（与 `As` 一致），或显式写出两个类型实参，例如 `AsWithAny[Fsx, Fs](root)`。
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/corego/typer"
+)
+
+type Fs interface{ Open() }
+type Fsx interface{ Get() }
+
+type realFs struct{ tag string }
+
+func (realFs) Open() {}
+func (realFs) Get()  {}
+
+type openFs struct{ child Fs }
+
+func (openFs) Open() {}
+
+func (o openFs) Unwrap() Fs { return o.child }
+
+// fsAny 挂在 Fs 边上（实现 Open），却用 Unwrap() any 暴露后继。
+type fsAny struct{ child any }
+
+func (fsAny) Open() {}
+
+func (f fsAny) Unwrap() any { return f.child }
+
+func main() {
+	var fs Fs = openFs{child: fsAny{child: realFs{tag: "x"}}}
+	fsx, ok := typer.AsWithAny[Fsx](fs)
+	fmt.Println(ok) // true：As[Fsx](fs) 会在 fsAny 处停住
+	fsx.Get()       // 命中的是 realFs
 }
 ```
 

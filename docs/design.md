@@ -76,7 +76,7 @@
 
 ### 2.9 混合边：按节点的 `any` 降级与多边类型
 
-**结论**：新增 `AsFromWithAny[E, T]` 与 `AsFromWith2[E, A, B]`，支持边类型不同的节点混在同一个图里。它们共用一个以 `any` 承载节点的遍历器，对**每个节点按序尝试**多个边形状：`AsFromWithAny` 依次试 `Unwrapper[T]`、`MultiUnwrapper[T]`、`Unwrapper[any]`、`MultiUnwrapper[any]`；`AsFromWith2` 多试 `A`、`B` 两种边形状，最后同样降级到 `any`。
+**结论**：新增 `AsFromWithAny[E, T]` 与 `AsFromWith2[E, A, B]`，支持边类型不同的节点混在同一个图里。它们共用一个以 `any` 承载节点的遍历器，对**每个节点按序尝试**多个边形状：`AsFromWithAny` 依次试 `Unwrapper[T]`、`MultiUnwrapper[T]`、`Unwrapper[any]`、`MultiUnwrapper[any]`；`AsFromWith2` 多试 `A`、`B` 两种边形状，最后同样降级到 `any`。此外提供强类型根版本 `AsWithAny[E, T]`（`T` 由 `root` 推导），语义与 `AsFromWithAny` 相同，只是省去显式的 `any` 根，调用形态贴近 `As[E](x)`。
 
 **理由**：`walkNodes[T]` 是**同质**遍历——边类型 `T` 的遍历只会跟 `Unwrap() T` 的边。这带来一个盲区：节点实现 `Unwrap() any`（或 `Unwrap() error`、`Unwrap() Fs`）时，对 `T` 边遍历完全不可见，会被当成死胡同。真实代码里混合边并不罕见：`error` 链中某个节点又挂了一条自定义边，或持有型代理混用 `Unwrap() Fs` 与 `Unwrap() any`。
 

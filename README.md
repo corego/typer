@@ -11,7 +11,7 @@
 
 - 把固定 `error` 的 `Unwrap` / `Is` / `As` 泛化到任意边类型 `T`，用法类似 Rust 的 trait。
 - 异构查找：`As` 的边类型 `T` 与匹配类型 `E` 相互独立，能在 `T` 链里找出 `E`。
-- 混合边图：`AsFromWithAny[E, T]` / `AsFromWith2[E, A, B]` 支持同一图里混用 `Unwrap() T` 与 `Unwrap() any`（或两种边类型），按节点自动降级。
+- 混合边图：`AsWithAny[E, T]`（强类型根）/ `AsFromWithAny[E, T]` / `AsFromWith2[E, A, B]` 支持同一图里混用 `Unwrap() T` 与 `Unwrap() any`（或两种边类型），按节点自动降级。
 - 零反射：遍历完全基于编译期类型断言，`reflect` 只在 `Is` 里用于防住非可比较动态类型导致的 panic。
 - 与标准库语义对齐：typed-nil 节点会被访问并下探，支持 `Unwrap() []error` 树，`errors.Is(err, nil)` 一致，兼容旧的 `interface{ As(any) bool }`。
 - 循环安全：`MaxDepth` 深度上限保证自引用或带环图也能终止。
@@ -92,6 +92,6 @@ go vet ./...
 go test -race ./...
 ```
 
-本库共有 39 个测试。
+本库共有 43 个测试。
 
 许可证：TBD
