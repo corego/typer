@@ -6,6 +6,12 @@ import "github.com/corego/typer/internal/unwrap"
 // returns it. See [unwrap.As] for the full semantics.
 func As[E any, T any](root T) (E, bool) { return unwrap.As[E](root) }
 
+// AsWithAny searches the graph rooted at root for the first value assignable
+// to E when the edges may mix the edge type T with the universal edge type
+// any. It is the typed-root form of AsFromWithAny. See [unwrap.AsWithAny] for
+// the full semantics.
+func AsWithAny[E any, T any](root T) (E, bool) { return unwrap.AsWithAny[E](root) }
+
 // AsFrom searches a graph for the first value assignable to E when the root is
 // stored as any, or when the root merely holds a value of the edge type T as a
 // field. See [unwrap.AsFrom] for the full semantics.

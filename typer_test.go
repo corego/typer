@@ -765,3 +765,65 @@ func TestAsFromWith2RetainsAnyFallback(t *testing.T) {
 		t.Fatalf("AsFromWith2 returned tag %q, want %q", gotFs.tag, "any2")
 	}
 }
+
+func TestAsWithAnyAnyEdgeFallback(t *testing.T) {
+	var fs Fs = openFs{child: fsAny{child: realFs{tag: "typed"}}}
+	if _, ok := As[Fsx](fs); ok {
+		t.Fatalf("As unexpectedly crossed into the any edge")
+	}
+	got, ok := AsWithAny[Fsx](fs)
+	if !ok {
+		t.Fatalf("AsWithAny returned ok=false, want true")
+	}
+	gotFs, isReal := got.(realFs)
+	if !isReal {
+		t.Fatalf("AsWithAny returned %T, want realFs", got)
+	}
+	if gotFs.tag != "typed" {
+		t.Fatalf("AsWithAny returned tag %q, want %q", gotFs.tag, "typed")
+	}
+}
+
+func TestAsWithAnyPureEdgeTypeMatchesAs(t *testing.T) {
+	var fs Fs = openFs{child: realFs{tag: "pure"}}
+	withAny, okWith := AsWithAny[Fsx](fs)
+	plain, okPlain := As[Fsx](fs)
+	if okWith != okPlain || withAny != plain {
+		t.Fatalf("AsWithAny (%v, %v) diverged from As (%v, %v)", withAny, okWith, plain, okPlain)
+	}
+
+	var anyEdge any = anyFs{child: realFs{tag: "anyedge"}}
+	gotAny, okAny := AsWithAny[Fsx](anyEdge)
+	if !okAny {
+		t.Fatalf("AsWithAny with T inferred as any returned ok=false, want true")
+	}
+	gotFs, isReal := gotAny.(realFs)
+	if !isReal {
+		t.Fatalf("AsWithAny returned %T, want realFs", gotAny)
+	}
+	if gotFs.tag != "anyedge" {
+		t.Fatalf("AsWithAny returned tag %q, want %q", gotFs.tag, "anyedge")
+	}
+}
+
+func TestAsWithAnyTypedNilRootParity(t *testing.T) {
+	got, ok := AsWithAny[*concreteErr](error((*concreteErr)(nil)))
+	if !ok {
+		t.Fatalf("AsWithAny returned ok=false, want true for typed-nil match")
+	}
+	if got != nil {
+		t.Fatalf("AsWithAny returned %v, want nil *concreteErr", got)
+	}
+}
+
+func TestAsWithAnyAbsent(t *testing.T) {
+	var fs Fs
+	if _, ok := AsWithAny[Fsx](fs); ok {
+		t.Fatalf("AsWithAny over a nil root returned ok=true")
+	}
+
+	var fs2 Fs = openFs{child: fsAny{child: nil}}
+	if _, ok := AsWithAny[Fsx](fs2); ok {
+		t.Fatalf("AsWithAny over a nil any child returned ok=true")
+	}
+}

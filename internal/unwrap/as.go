@@ -240,6 +240,21 @@ func AsFromWithAny[E any, T any](root any) (E, bool) {
 	return asFromMixed[E](root, nextTThenAny[T])
 }
 
+// AsWithAny searches the graph rooted at root for the first value assignable
+// to E, where the graph's edges may mix the edge type T with the universal edge
+// type any. It is the typed-root form of AsFromWithAny: T is inferred from root
+// and E is supplied explicitly via a partial type argument, e.g.
+// AsWithAny[*MyErr](err) with T inferred as error.
+//
+// The node matching and edge fallback rules are identical to AsFromWithAny, and
+// the root is visited and matched like any other node. T is inferred from the
+// static type of root: when the edge type is an interface, pass a value whose
+// static type is that interface (as with As), or write both type arguments
+// explicitly, e.g. AsWithAny[Fsx, Fs](root).
+func AsWithAny[E any, T any](root T) (E, bool) {
+	return AsFromWithAny[E, T](root)
+}
+
 // AsFromWith2 searches a graph for the first value assignable to E when the
 // root is stored as any, or when the root merely holds a value as a field, and
 // where the graph's edges may mix two edge types A and B, falling back to the
