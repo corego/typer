@@ -21,8 +21,8 @@
 
 | 名称 | 含义 | 出现位置 |
 | --- | --- | --- |
-| `T` | 边类型：节点之间连边的类型，决定图长什么样 | `Unwrapper[T]`、`MultiUnwrapper[T]`、`Unwrap[T]`、`UnwrapAll[T]`、`Walk[T]`、`Is[T]`、`As[E, T]`、`AsFrom[E, T]` |
-| `E` | 匹配类型：你想从图里捞出来的类型 | `As[E, T]`、`AsFrom[E, T]`、`Aser[E]`、`AsError[E]` |
+| `T` | 边类型：节点之间连边的类型，决定图长什么样 | `Unwrapper[T]`、`MultiUnwrapper[T]`、`Unwrap[T]`、`UnwrapAll[T]`、`Walk[T]`、`Is[T]`、`As[E, T]`、`AsFrom[E, T]`、`AsFromWithAny[E, T]` |
+| `E` | 匹配类型：你想从图里捞出来的类型 | `As[E, T]`、`AsFrom[E, T]`、`AsFromWithAny[E, T]`、`AsFromWith2[E, A, B]`、`Aser[E]`、`AsError[E]` |
 
 在 `errors.As` 里，`T` 恒为 `error`、`E` 由你指定。本库把 `T` 也开放出来，这就是「异构查找」的含义。
 
@@ -210,6 +210,99 @@ func main() {
 	fsx, ok := typer.AsFrom[Fsx, Fs](&proxyfs{fs: realFs{}})
 	fmt.Println(ok) // true
 	fsx.Get()       // 命中的是 realFs
+}
+```
+
+### `func AsFromWithAny[E any, T any](root any) (E, bool)`
+
+当 `root` 以 `any` 保存，或只是**持有**一个字段，且图中节点可能混合使用边类型 `T` 与通配边类型 `any` 时使用。是 `AsFrom` 的按节点降级版。
+
+- 类型参数 `E`：匹配类型，显式给出。
+- 类型参数 `T`：主边类型，显式给出。
+- 参数 `root`：起点，类型为 `any`。
+- 返回：命中时 `(匹配值, true)`；否则 `(E 的零值, false)`。
+- 每个节点按序取后继：① `Unwrapper[T]`；② `MultiUnwrapper[T]`；③ 降级 `Unwrapper[any]`；④ 降级 `MultiUnwrapper[any]`。
+- 因为一个类型无法同时声明 `Unwrap() T` 与 `Unwrap() any`（同名方法不同签名），降级**无歧义**：只对「不暴露 `T` 后继」的节点生效——这些节点在 `AsFrom` 里原本是死胡同。
+- 与 `AsFrom` 不同，`AsFromWithAny` 会**访问并匹配根节点本身**（和 `As` 一致），覆盖更彻底。
+- 根为 `nil` 返回 `(E 的零值, false)`。
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/corego/typer"
+)
+
+type Fs interface{ Open() }
+type Fsx interface{ Get() }
+
+type realFs struct{ tag string }
+
+func (realFs) Open() {}
+func (realFs) Get()  {}
+
+// anyFs 用 Unwrap() any 暴露后继；AsFrom[Fsx, Fs] 看不到这条边。
+type anyFs struct{ child Fs }
+
+func (a anyFs) Unwrap() any { return a.child }
+
+func main() {
+	fsx, ok := typer.AsFromWithAny[Fsx, Fs](anyFs{child: realFs{tag: "x"}})
+	fmt.Println(ok) // true
+	fsx.Get()       // 命中的是 realFs
+}
+```
+
+### `func AsFromWith2[E any, A any, B any](root any) (E, bool)`
+
+当图中节点可能混合两种**互不可见**的边类型 `A` 与 `B` 时使用，同样按节点降级到 `any`。典型场景：标准库 `Unwrap() error` 链与自定义 `Unwrap() Fs` 链共存。
+
+- 类型参数 `E`：匹配类型，显式给出。
+- 类型参数 `A`、`B`：两种边类型，显式给出。
+- 参数 `root`：起点，类型为 `any`。
+- 返回：命中时 `(匹配值, true)`；否则 `(E 的零值, false)`。
+- 每个节点按序取后继：① `Unwrapper[A]`；② `MultiUnwrapper[A]`；③ `Unwrapper[B]`；④ `MultiUnwrapper[B]`；⑤ 降级 `Unwrapper[any]`；⑥ `MultiUnwrapper[any]`。
+- 单个类型至多实现上述一种形状，尝试顺序不会造成歧义。
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/corego/typer"
+)
+
+type Fs interface{ Open() }
+type Fsx interface{ Get() }
+
+type Gs interface{ Run() }
+
+type realGs struct{}
+
+func (realGs) Open() {} // 实现 Fs，可挂在 Fs 边上
+func (realGs) Run()  {} // 实现 Gs
+func (realGs) Get()  {} // 实现 Fsx，即要找的目标
+
+type openFs struct{ child Fs }
+
+func (openFs) Open() {}
+
+func (o openFs) Unwrap() Fs { return o.child }
+
+// gsNode 挂在 Fs 边上（实现 Open），自身却用 Gs 边暴露后继。
+type gsNode struct{ child Gs }
+
+func (gsNode) Open() {}
+
+func (n gsNode) Unwrap() Gs { return n.child }
+
+func main() {
+	fsx, ok := typer.AsFromWith2[Fsx, Fs, Gs](openFs{child: gsNode{child: realGs{}}})
+	fmt.Println(ok) // true
+	fsx.Get()
 }
 ```
 
@@ -440,3 +533,4 @@ func main() {
 - Go 不支持泛型方法：单一类型无法同时实现 `Unwrapper[T]` 与 `MultiUnwrapper[T]`（二者都叫 `Unwrap`）。
 - `AsError[error](err)` 对任意非 nil 的 `err` 都会返回 `err` 本身。
 - 边类型不做反射发现：只认编译期类型断言，不会运行时扫描字段猜测后继。
+- 混合边与 `go vet`：一个同时实现 `error`（有 `Error() string`）与 `Unwrap() T`（`T` 非 `error`）的桥接类型，会被 `go vet` 的 `stdmethods` 检查告警（它假定 `error` 类型的 `Unwrap()` 应返回 `error` 或 `[]error`）。这不是编译错误、语义正确，但 `go vet ./...` 会报警，CI 需要知晓。
