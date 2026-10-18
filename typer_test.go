@@ -570,3 +570,198 @@ func TestDepthBoundary(t *testing.T) {
 		t.Fatalf("Walk visited %d nodes, want %d", count, MaxDepth+1)
 	}
 }
+
+type anyFs struct{ child Fs }
+
+func (a anyFs) Unwrap() any { return a.child }
+
+type fsAny struct{ child any }
+
+func (fsAny) Open() {}
+
+func (f fsAny) Unwrap() any { return f.child }
+
+type anyGroup struct{ children []any }
+
+func (g anyGroup) Unwrap() []any { return g.children }
+
+type anySelf struct{}
+
+func (s *anySelf) Unwrap() any { return s }
+
+type Gs interface{ Run() }
+
+type realGs struct{ tag string }
+
+func (realGs) Run()  {}
+func (realGs) Stop() {}
+func (realGs) Get()  {}
+
+type gsNode struct{ child Gs }
+
+func (gsNode) Open() {}
+
+func (n gsNode) Unwrap() Gs { return n.child }
+
+func TestAsFromWithAnyAnyEdgeFallback(t *testing.T) {
+	root := anyFs{child: realFs{tag: "anyedge"}}
+	if _, ok := AsFrom[Fsx, Fs](root); ok {
+		t.Fatalf("AsFrom unexpectedly saw Unwrap() any edge")
+	}
+	got, ok := AsFromWithAny[Fsx, Fs](root)
+	if !ok {
+		t.Fatalf("AsFromWithAny returned ok=false, want true")
+	}
+	gotFs, isReal := got.(realFs)
+	if !isReal {
+		t.Fatalf("AsFromWithAny returned %T, want realFs", got)
+	}
+	if gotFs.tag != "anyedge" {
+		t.Fatalf("AsFromWithAny returned tag %q, want %q", gotFs.tag, "anyedge")
+	}
+}
+
+func TestAsFromWithAnyMixedChainCrossesShapes(t *testing.T) {
+	root := openFs{child: fsAny{child: realFs{tag: "deep"}}}
+	if _, ok := AsFrom[Fsx, Fs](root); ok {
+		t.Fatalf("AsFrom unexpectedly crossed into the any edge")
+	}
+	got, ok := AsFromWithAny[Fsx, Fs](root)
+	if !ok {
+		t.Fatalf("AsFromWithAny returned ok=false, want true")
+	}
+	gotFs, isReal := got.(realFs)
+	if !isReal {
+		t.Fatalf("AsFromWithAny returned %T, want realFs", got)
+	}
+	if gotFs.tag != "deep" {
+		t.Fatalf("AsFromWithAny returned tag %q, want %q", gotFs.tag, "deep")
+	}
+}
+
+func TestAsFromWithAnyPureEdgeTypeUnchanged(t *testing.T) {
+	root := openFs{child: realFs{tag: "pure"}}
+	got, ok := AsFromWithAny[Fsx, Fs](root)
+	if !ok {
+		t.Fatalf("AsFromWithAny on a pure T chain returned ok=false, want true")
+	}
+	gotFs, isReal := got.(realFs)
+	if !isReal {
+		t.Fatalf("AsFromWithAny returned %T, want realFs", got)
+	}
+	if gotFs.tag != "pure" {
+		t.Fatalf("AsFromWithAny returned tag %q, want %q", gotFs.tag, "pure")
+	}
+
+	anyEdge, okAny := AsFromWithAny[Fsx, any](anyFs{child: realFs{tag: "anyedge"}})
+	if !okAny {
+		t.Fatalf("AsFromWithAny with edge type any returned ok=false, want true")
+	}
+	anyFsReal, isAnyReal := anyEdge.(realFs)
+	if !isAnyReal || anyFsReal.tag != "anyedge" {
+		t.Fatalf("AsFromWithAny[Fsx, any] returned %v, want realFs{anyedge}", anyEdge)
+	}
+}
+
+func TestAsFromWithAnyMultiChildFallback(t *testing.T) {
+	group := anyGroup{children: []any{
+		realFs{tag: "first"},
+		realFs{tag: "second"},
+	}}
+	got, ok := AsFromWithAny[Fsx, Fs](group)
+	if !ok {
+		t.Fatalf("AsFromWithAny returned ok=false, want true")
+	}
+	gotFs, isReal := got.(realFs)
+	if !isReal {
+		t.Fatalf("AsFromWithAny returned %T, want realFs", got)
+	}
+	if gotFs.tag != "first" {
+		t.Fatalf("AsFromWithAny returned tag %q, want first branch %q", gotFs.tag, "first")
+	}
+}
+
+func TestAsFromWithAnyAserAndLegacyOverrides(t *testing.T) {
+	got, ok := AsFromWithAny[int, Fs](&aserNode{n: 42})
+	if !ok || got != 42 {
+		t.Fatalf("AsFromWithAny over Aser got (%v, %v), want (42, true)", got, ok)
+	}
+
+	target := &leafErr{msg: "deep"}
+	le := &legacyErr{inner: target}
+	gotErr, okErr := AsFromWithAny[*leafErr, error](le)
+	if !okErr || gotErr != target {
+		t.Fatalf("AsFromWithAny over legacy As got (%v, %v), want (%p, true)", gotErr, okErr, target)
+	}
+}
+
+func TestAsFromWithAnyRootMatchAndAbsent(t *testing.T) {
+	got, ok := AsFromWithAny[Fsx, Fs](realFs{tag: "direct"})
+	if !ok {
+		t.Fatalf("AsFromWithAny over a direct E root returned ok=false, want true")
+	}
+	gotFs, isReal := got.(realFs)
+	if !isReal || gotFs.tag != "direct" {
+		t.Fatalf("AsFromWithAny returned %v, want realFs{direct}", got)
+	}
+
+	if _, ok := AsFromWithAny[Fsx, Fs](nil); ok {
+		t.Fatalf("AsFromWithAny(nil) returned ok=true")
+	}
+	if _, ok := AsFromWithAny[*realFs, Fs](&proxyfs{fs: nil}); ok {
+		t.Fatalf("AsFromWithAny over a nil child returned ok=true")
+	}
+}
+
+func TestAsFromWithAnyTypedNilChildParity(t *testing.T) {
+	root := &wrapErr{msg: "wrap", err: error((*concreteErr)(nil))}
+	got, ok := AsFromWithAny[*concreteErr, error](root)
+	if !ok {
+		t.Fatalf("AsFromWithAny returned ok=false, want true for typed-nil match")
+	}
+	if got != nil {
+		t.Fatalf("AsFromWithAny returned %v, want nil *concreteErr", got)
+	}
+}
+
+func TestAsFromWithAnyCycleTerminates(t *testing.T) {
+	if _, ok := AsFromWithAny[int, Fs](&anySelf{}); ok {
+		t.Fatalf("AsFromWithAny matched an absent target in a self-cycle")
+	}
+}
+
+func TestAsFromWith2MixesTwoEdgeTypes(t *testing.T) {
+	root := openFs{child: gsNode{child: realGs{tag: "mix"}}}
+	if _, ok := AsFrom[Fsx, Fs](root); ok {
+		t.Fatalf("AsFrom over the Fs edge unexpectedly crossed into the Gs edge")
+	}
+	if _, ok := AsFrom[Fsx, Gs](root); ok {
+		t.Fatalf("AsFrom over the Gs edge unexpectedly crossed into the Fs edge")
+	}
+	got, ok := AsFromWith2[Fsx, Fs, Gs](root)
+	if !ok {
+		t.Fatalf("AsFromWith2 returned ok=false, want true")
+	}
+	gotGs, isReal := got.(realGs)
+	if !isReal {
+		t.Fatalf("AsFromWith2 returned %T, want realGs", got)
+	}
+	if gotGs.tag != "mix" {
+		t.Fatalf("AsFromWith2 returned tag %q, want %q", gotGs.tag, "mix")
+	}
+}
+
+func TestAsFromWith2RetainsAnyFallback(t *testing.T) {
+	root := anyFs{child: realFs{tag: "any2"}}
+	got, ok := AsFromWith2[Fsx, int, Fs](root)
+	if !ok {
+		t.Fatalf("AsFromWith2 returned ok=false, want true")
+	}
+	gotFs, isReal := got.(realFs)
+	if !isReal {
+		t.Fatalf("AsFromWith2 returned %T, want realFs", got)
+	}
+	if gotFs.tag != "any2" {
+		t.Fatalf("AsFromWith2 returned tag %q, want %q", gotFs.tag, "any2")
+	}
+}

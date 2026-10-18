@@ -10,3 +10,14 @@ func As[E any, T any](root T) (E, bool) { return unwrap.As[E](root) }
 // stored as any, or when the root merely holds a value of the edge type T as a
 // field. See [unwrap.AsFrom] for the full semantics.
 func AsFrom[E any, T any](root any) (E, bool) { return unwrap.AsFrom[E, T](root) }
+
+// AsFromWithAny searches a graph for the first value assignable to E when the
+// root is stored as any and the edges may mix the edge type T with the
+// universal edge type any. See [unwrap.AsFromWithAny] for the full semantics.
+func AsFromWithAny[E any, T any](root any) (E, bool) { return unwrap.AsFromWithAny[E, T](root) }
+
+// AsFromWith2 searches a graph for the first value assignable to E when the
+// root is stored as any and the edges may mix two edge types A and B, falling
+// back to the universal edge type any. See [unwrap.AsFromWith2] for the full
+// semantics.
+func AsFromWith2[E any, A any, B any](root any) (E, bool) { return unwrap.AsFromWith2[E, A, B](root) }
